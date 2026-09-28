@@ -1,0 +1,15 @@
+# Contexte de build minimal : jamais de secrets ni de fichiers inutiles dans l'image.
+.git
+.gitignore
+.env
+.env.*
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+docs/
+*.md
+docker-compose.yml
+Dockerfile
