@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Semgrep",
+          "rules": [
+            {
+              "id": "python.lang.security.audit.eval-detected.eval-detected",
+              "shortDescription": {
+                "text": "Détection d'un appel à eval()"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "python.lang.security.audit.eval-detected.eval-detected",
+          "level": "warning",
+          "message": {
+            "text": "Éviter eval() avec des données utilisateur."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/vulnerable.py"
+                },
+                "region": {
+                  "startLine": 12,
+                  "startColumn": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

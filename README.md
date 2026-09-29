@@ -2,7 +2,7 @@
 
 Plateforme légère de gestion de findings de sécurité : elle ingère les résultats de scanners externes (Semgrep, Trivy, Checkov), les normalise dans un modèle commun, les déduplique, suit leur cycle de vie et les expose via une API et un tableau de bord.
 
-> **Statut : Étape 1 — base de données.** Le schéma (6 tables) et les migrations Alembic sont en place ; l'ingestion des rapports arrive à l'Étape 2.
+> **Statut : Étape 2 — ingestion.** `POST /scans` reçoit un rapport de scanner (multipart), le valide minimalement et stocke le rapport brut en base. La normalisation des findings arrive aux étapes suivantes.
 
 ## Stack
 
@@ -56,16 +56,33 @@ docker compose exec api alembic upgrade head
 docker compose exec api alembic revision --autogenerate -m "description"
 ```
 
+## Ingestion d'un rapport
+
+```powershell
+curl.exe -X POST http://localhost:8000/scans `
+  -F "file=@tests/data/semgrep-example.sarif" `
+  -F "project=demo" -F "repository=app-vulnerable" `
+  -F "scanner=semgrep" -F "commit_sha=abc123" -F "branch=main" -F "is_complete=true"
+```
+
+- `scanner` : `semgrep`, `trivy` ou `checkov`.
+- Rapport limité à 10 Mo (`413` au-delà) ; JSON invalide ou non-objet refusé (`400`).
+- Le projet et le dépôt sont créés automatiquement s'ils n'existent pas.
+- Le rapport brut est stocké tel quel dans `scan_executions.raw_report` (JSONB).
+
 ## Structure
 
 ```text
 secumerge/
 ├── app/
 │   ├── main.py          # point d'entrée + /health
+│   ├── api/             # routes HTTP (POST /scans)
 │   ├── core/            # configuration et connexion base de données
-│   └── models/          # modèles SQLAlchemy (6 tables)
+│   ├── models/          # modèles SQLAlchemy (6 tables)
+│   ├── schemas/         # schémas Pydantic de l'API
+│   └── services/        # logique métier (ingestion)
 ├── alembic/             # migrations
-├── tests/               # tests pytest
+├── tests/               # tests pytest + exemples de rapports
 ├── docs/                # spécification et planning
 ├── security-lab/        # (à venir) code volontairement vulnérable, isolé
 ├── docker-compose.yml   # api + postgres

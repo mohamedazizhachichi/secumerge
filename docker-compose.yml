@@ -14,6 +14,7 @@ services:
     volumes:
       # Rechargement à chaud du code et de la configuration ; Alembic écrit sur l'hôte.
       - ./app:/code/app
+      - ./tests:/code/tests
       - ./alembic:/code/alembic
       - ./alembic.ini:/code/alembic.ini
       - ./pyproject.toml:/code/pyproject.toml

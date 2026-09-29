@@ -1,16 +1,16 @@
-"""Point d'entrée de l'application SecuMerge.
-
-Étape 0 : squelette FastAPI avec un endpoint de santé.
-Les modèles, migrations et endpoints métier arriveront aux étapes suivantes.
-"""
+"""Point d'entrée de l'application SecuMerge."""
 
 from fastapi import FastAPI
+
+from app.api.scans import router as scans_router
 
 app = FastAPI(
     title="SecuMerge",
     description="Plateforme légère de gestion de findings de sécurité.",
     version="0.1.0",
 )
+
+app.include_router(scans_router)
 
 
 @app.get("/")
