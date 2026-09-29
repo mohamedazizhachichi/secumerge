@@ -12,8 +12,10 @@ services:
       db:
         condition: service_healthy
     volumes:
-      # Rechargement à chaud du code pendant le développement.
+      # Rechargement à chaud du code ; Alembic écrit les migrations sur l'hôte.
       - ./app:/code/app
+      - ./alembic:/code/alembic
+      - ./alembic.ini:/code/alembic.ini
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   db:

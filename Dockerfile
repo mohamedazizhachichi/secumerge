@@ -12,7 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY tests ./tests
-COPY pyproject.toml .
+COPY alembic ./alembic
+COPY alembic.ini pyproject.toml ./
 
 # Conteneur non-root.
 RUN useradd --create-home --uid 1000 appuser \

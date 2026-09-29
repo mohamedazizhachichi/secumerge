@@ -1,6 +1,12 @@
 # --- Exécution ---
 fastapi>=0.115
 uvicorn[standard]>=0.30
+pydantic-settings>=2.0
+
+# --- Base de données ---
+sqlalchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.2
 
 # --- Tests / lint (image de développement) ---
 # À l'Étape 0, une seule image sert pour le dev et les tests.

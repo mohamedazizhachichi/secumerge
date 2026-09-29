@@ -2,7 +2,7 @@
 
 Plateforme légère de gestion de findings de sécurité : elle ingère les résultats de scanners externes (Semgrep, Trivy, Checkov), les normalise dans un modèle commun, les déduplique, suit leur cycle de vie et les expose via une API et un tableau de bord.
 
-> **Statut : Étape 0 — squelette.** L'application démarre (FastAPI + PostgreSQL via Docker Compose) mais n'ingère pas encore de findings.
+> **Statut : Étape 1 — base de données.** Le schéma (6 tables) et les migrations Alembic sont en place ; l'ingestion des rapports arrive à l'Étape 2.
 
 ## Stack
 
@@ -28,7 +28,10 @@ Copy-Item .env.example .env
 # 2. Construire et lancer l'API + PostgreSQL
 docker compose up --build
 
-# 3. Vérifier (second terminal ou navigateur)
+# 3. Appliquer les migrations (second terminal, pendant que ça tourne)
+docker compose exec api alembic upgrade head
+
+# 4. Vérifier (navigateur ou second terminal)
 curl.exe http://localhost:8000/health
 ```
 
@@ -43,12 +46,25 @@ Arrêter : `Ctrl+C`, puis `docker compose down`.
 docker compose exec api pytest
 ```
 
+## Migrations
+
+```powershell
+# Appliquer les migrations sur la base locale
+docker compose exec api alembic upgrade head
+
+# Créer une migration après avoir modifié un modèle
+docker compose exec api alembic revision --autogenerate -m "description"
+```
+
 ## Structure
 
 ```text
 secumerge/
-├── app/                 # application FastAPI
-│   └── main.py          # point d'entrée + /health
+├── app/
+│   ├── main.py          # point d'entrée + /health
+│   ├── core/            # configuration et connexion base de données
+│   └── models/          # modèles SQLAlchemy (6 tables)
+├── alembic/             # migrations
 ├── tests/               # tests pytest
 ├── docs/                # spécification et planning
 ├── security-lab/        # (à venir) code volontairement vulnérable, isolé

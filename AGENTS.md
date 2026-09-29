@@ -78,12 +78,12 @@ Cette structure peut évoluer si l'implémentation révèle mieux ; ne pas la fo
 ```powershell
 Copy-Item .env.example .env     # première fois uniquement (.env n'est jamais commité)
 docker compose up --build       # lancer l'API + PostgreSQL
+docker compose exec api alembic upgrade head    # appliquer les migrations
+docker compose exec api alembic revision --autogenerate -m "..."  # nouvelle migration
 docker compose exec api pytest  # tests dans le conteneur
 ruff check .                    # lint (local ; sinon dans le conteneur)
 docker compose down             # arrêter les services
 ```
-
-Les migrations (`alembic upgrade head`) arrivent à l'Étape 1.
 
 ## 6. Règles de sécurité non négociables
 
