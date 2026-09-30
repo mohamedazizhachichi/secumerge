@@ -15,7 +15,15 @@ from sqlalchemy.orm import Session
 
 from app.ingestion.models import NormalizedFinding
 from app.ingestion.parsers import get_parser
-from app.models import Finding, FindingOccurrence, Project, Repository, ScanExecution
+from app.ingestion.sarif import has_sarif_runs
+from app.models import (
+    Finding,
+    FindingOccurrence,
+    FindingStatus,
+    Project,
+    Repository,
+    ScanExecution,
+)
 
 # Taille maximale d'un rapport : 10 Mio.
 MAX_REPORT_SIZE = 10 * 1024 * 1024
@@ -42,6 +50,7 @@ class ScanIngestResult:
     execution: ScanExecution
     findings_created: int = 0
     findings_updated: int = 0
+    findings_resolved: int = 0
 
 
 async def read_upload_limited(upload: UploadFile) -> bytes:
@@ -109,18 +118,19 @@ def _upsert_findings(
     db: Session,
     execution: ScanExecution,
     normalized_findings: list[NormalizedFinding],
+    seen: set[str],
 ) -> tuple[int, int]:
     """Crée ou met à jour les findings, et ajoute une occurrence par finding.
 
     - même empreinte dans le même dépôt  -> même ligne `Finding` ;
     - le statut n'est jamais écrasé par une ré-ingestion ;
+    - `seen` est rempli avec les empreintes vues dans ce scan ;
     - une même empreinte répétée dans un rapport ne compte qu'une fois.
     """
     repository = execution.repository
     now = datetime.now(UTC)
     created = 0
     updated = 0
-    seen: set[str] = set()
 
     for item in normalized_findings:
         if item.fingerprint in seen:
@@ -175,6 +185,37 @@ def _upsert_findings(
     return created, updated
 
 
+def _resolve_missing_findings(
+    db: Session,
+    execution: ScanExecution,
+    seen: set[str],
+) -> int:
+    """Résout les findings du scanner absents d'un scan complet.
+
+    Uniquement les statuts `OPEN` et `CONFIRMED` : `FALSE_POSITIVE` et
+    `ACCEPTED_RISK` sont des décisions humaines, jamais écrasées.
+    """
+    repository = execution.repository
+    now = datetime.now(UTC)
+
+    candidates = db.scalars(
+        select(Finding).where(
+            Finding.repository_id == repository.id,
+            Finding.scanner == execution.scanner,
+            Finding.status.in_([FindingStatus.OPEN, FindingStatus.CONFIRMED]),
+        )
+    ).all()
+
+    resolved = 0
+    for finding in candidates:
+        if finding.fingerprint in seen:
+            continue
+        finding.status = FindingStatus.RESOLVED.value
+        finding.status_updated_at = now
+        resolved += 1
+    return resolved
+
+
 def ingest_scan(
     db: Session,
     *,
@@ -186,7 +227,8 @@ def ingest_scan(
     is_complete: bool,
     raw_report: dict[str, Any],
 ) -> ScanIngestResult:
-    """Stocke l'exécution de scan puis normalise ses findings (si parseur connu)."""
+    """Stocke l'exécution de scan, normalise ses findings et résout les
+    findings disparus lorsqu'un scan complet et exploitable le permet."""
     project = get_or_create_project(db, project_name)
     repository = get_or_create_repository(db, project, repository_name)
 
@@ -205,9 +247,12 @@ def ingest_scan(
     parser = get_parser(scanner)
     if parser is not None:
         normalized = parser(raw_report)
+        seen: set[str] = set()
         result.findings_created, result.findings_updated = _upsert_findings(
-            db, execution, normalized
+            db, execution, normalized, seen
         )
+        if execution.is_complete and has_sarif_runs(raw_report):
+            result.findings_resolved = _resolve_missing_findings(db, execution, seen)
 
     db.commit()
     db.refresh(execution)

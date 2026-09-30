@@ -19,3 +19,4 @@ class ScanExecutionRead(BaseModel):
     created_at: datetime
     findings_created: int = 0
     findings_updated: int = 0
+    findings_resolved: int = 0

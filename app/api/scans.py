@@ -65,5 +65,6 @@ async def create_scan(
         update={
             "findings_created": result.findings_created,
             "findings_updated": result.findings_updated,
+            "findings_resolved": result.findings_resolved,
         }
     )

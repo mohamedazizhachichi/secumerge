@@ -2,7 +2,7 @@
 
 Plateforme légère de gestion de findings de sécurité : elle ingère les résultats de scanners externes (Semgrep, Trivy, Checkov), les normalise dans un modèle commun, les déduplique, suit leur cycle de vie et les expose via une API et un tableau de bord.
 
-> **Statut : Étape 4 — trois scanners.** `POST /scans` stocke le rapport brut et normalise les findings Semgrep, Trivy et Checkov (empreinte stable, sévérité affinée par le score CVSS quand il est fourni).
+> **Statut : Étape 5 — cycle de vie.** Un scan complet et exploitable résout automatiquement les findings disparus du même scanner et du même dépôt ; un scan partiel ne change jamais rien.
 
 ## Stack
 
@@ -73,6 +73,9 @@ curl.exe -X POST http://localhost:8000/scans `
   findings créés ou mis à jour par empreinte stable, avec une occurrence par
   scan. La sévérité utilise le score CVSS (`security-severity`) quand le
   scanner le fournit, sinon le niveau SARIF.
+- Un scan complet résout (`RESOLVED`) les findings du même scanner absents du
+  rapport ; un scan partiel (`is_complete=false`) ou un rapport sans structure
+  SARIF ne résout jamais rien.
 
 ## Structure
 

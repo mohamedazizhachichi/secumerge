@@ -63,6 +63,15 @@ def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def has_sarif_runs(report: dict[str, Any]) -> bool:
+    """Vrai si le rapport contient au moins un run SARIF exploitable.
+
+    Garde-fou pour la résolution automatique : un rapport vide ou mal formé
+    ne doit jamais être interprété comme « plus aucun finding ».
+    """
+    return any(isinstance(raw_run, dict) for raw_run in as_list(report.get("runs")))
+
+
 def _text(value: Any) -> str | None:
     """Retourne une chaîne non vide, sinon None."""
     return value if isinstance(value, str) and value.strip() else None

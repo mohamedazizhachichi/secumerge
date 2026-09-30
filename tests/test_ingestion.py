@@ -8,6 +8,7 @@ from app.ingestion.parsers.checkov import parse_checkov_report
 from app.ingestion.parsers.semgrep import parse_semgrep_report
 from app.ingestion.parsers.trivy import parse_trivy_report
 from app.ingestion.sarif import (
+    has_sarif_runs,
     map_sarif_level,
     map_sarif_severity,
     map_security_severity,
@@ -133,3 +134,11 @@ def test_parse_tolerates_malformed_reports() -> None:
     assert parse_semgrep_report({"runs": [{"results": "pas une liste"}]}) == []
     assert parse_semgrep_report({"runs": [{"results": ["pas un objet"]}]}) == []
     assert parse_semgrep_report({"runs": [{"results": [{}]}]}) == []
+
+
+def test_has_sarif_runs() -> None:
+    assert has_sarif_runs({"runs": [{}]})
+    assert not has_sarif_runs({})
+    assert not has_sarif_runs({"runs": []})
+    assert not has_sarif_runs({"runs": ["pas un objet"]})
+    assert not has_sarif_runs({"runs": "pas une liste"})

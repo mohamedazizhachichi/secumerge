@@ -38,6 +38,9 @@ BASE_FIELDS = {
 
 DATA_DIR = Path(__file__).parent / "data"
 
+EVAL_RULE = "python.lang.security.audit.eval-detected.eval-detected"
+SUB_RULE = "python.lang.security.audit.subprocess-shell-true.subprocess-shell-true"
+
 
 def sample(name: str) -> bytes:
     return (DATA_DIR / name).read_bytes()
@@ -174,6 +177,7 @@ def test_reingesting_same_finding_reuses_row(
     second = post_scan(client, commit_sha="commit-2")
     assert second.json()["findings_created"] == 0
     assert second.json()["findings_updated"] == 1
+    assert second.json()["findings_resolved"] == 0
 
     db_session.expire_all()
     findings = db_session.scalars(
@@ -238,3 +242,94 @@ def test_checkov_report_creates_finding(
     assert finding.severity == "HIGH"
     assert finding.file_path == "main.tf"
     assert finding.location == "5"
+
+
+def test_disappeared_finding_is_resolved_by_complete_scan(
+    client: TestClient, db_session: Session
+) -> None:
+    first = post_scan(
+        client, report=sample("semgrep-two-findings.sarif"), commit_sha="run-1"
+    )
+    assert first.json()["findings_created"] == 2
+
+    second = post_scan(
+        client, report=sample("semgrep-example.sarif"), commit_sha="run-2"
+    )
+    assert second.json()["findings_created"] == 0
+    assert second.json()["findings_updated"] == 1
+    assert second.json()["findings_resolved"] == 1
+
+    db_session.expire_all()
+    repository = _repository(db_session)
+    findings = {
+        finding.rule_id: finding
+        for finding in db_session.scalars(
+            select(Finding).where(Finding.repository_id == repository.id)
+        ).all()
+    }
+    assert findings[SUB_RULE].status == "RESOLVED"
+    assert findings[EVAL_RULE].status == "OPEN"
+
+
+def test_partial_scan_does_not_resolve(client: TestClient, db_session: Session) -> None:
+    post_scan(client, report=sample("semgrep-two-findings.sarif"), commit_sha="run-1")
+
+    partial = post_scan(
+        client,
+        report=sample("semgrep-example.sarif"),
+        commit_sha="run-2",
+        is_complete="false",
+    )
+    assert partial.json()["findings_resolved"] == 0
+
+    db_session.expire_all()
+    repository = _repository(db_session)
+    statuses = db_session.scalars(
+        select(Finding.status).where(Finding.repository_id == repository.id)
+    ).all()
+    assert set(statuses) == {"OPEN"}
+
+
+def test_report_without_sarif_runs_does_not_resolve(
+    client: TestClient, db_session: Session
+) -> None:
+    post_scan(client, commit_sha="run-1")
+
+    empty = post_scan(client, report=b"{}", commit_sha="run-2")
+    assert empty.json()["findings_resolved"] == 0
+
+    db_session.expire_all()
+    repository = _repository(db_session)
+    finding = db_session.scalars(
+        select(Finding).where(Finding.repository_id == repository.id)
+    ).one()
+    assert finding.status == "OPEN"
+
+
+def test_resolved_finding_is_not_reopened(
+    client: TestClient, db_session: Session
+) -> None:
+    post_scan(client, report=sample("semgrep-two-findings.sarif"), commit_sha="run-1")
+    post_scan(client, report=sample("semgrep-example.sarif"), commit_sha="run-2")
+
+    db_session.expire_all()
+    repository = _repository(db_session)
+    resolved = db_session.scalars(
+        select(Finding).where(
+            Finding.repository_id == repository.id, Finding.rule_id == SUB_RULE
+        )
+    ).one()
+    assert resolved.status == "RESOLVED"
+
+    third = post_scan(
+        client, report=sample("semgrep-two-findings.sarif"), commit_sha="run-3"
+    )
+    assert third.json()["findings_updated"] == 2
+
+    db_session.expire_all()
+    still_resolved = db_session.scalars(
+        select(Finding).where(
+            Finding.repository_id == repository.id, Finding.rule_id == SUB_RULE
+        )
+    ).one()
+    assert still_resolved.status == "RESOLVED"  # pas de réouverture automatique

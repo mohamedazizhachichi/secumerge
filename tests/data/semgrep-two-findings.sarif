@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Semgrep",
+          "rules": [
+            {
+              "id": "python.lang.security.audit.eval-detected.eval-detected",
+              "shortDescription": {
+                "text": "Détection d'un appel à eval()"
+              }
+            },
+            {
+              "id": "python.lang.security.audit.subprocess-shell-true.subprocess-shell-true",
+              "shortDescription": {
+                "text": "subprocess avec shell=True"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "python.lang.security.audit.eval-detected.eval-detected",
+          "level": "warning",
+          "message": {
+            "text": "Éviter eval() avec des données utilisateur."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/vulnerable.py"
+                },
+                "region": {
+                  "startLine": 12,
+                  "startColumn": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "python.lang.security.audit.subprocess-shell-true.subprocess-shell-true",
+          "level": "warning",
+          "message": {
+            "text": "Utiliser shell=True expose à l'injection de commandes."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/vulnerable.py"
+                },
+                "region": {
+                  "startLine": 27,
+                  "startColumn": 9
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
