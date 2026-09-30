@@ -1,17 +1,21 @@
-"""Ingestion d'un rapport de scan : validation et stockage.
+"""Ingestion d'un rapport de scan : validation, normalisation et stockage.
 
 La route HTTP reste mince ; toute la logique vit ici pour rester testable
 sans passer par l'API.
 """
 
 import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Project, Repository, ScanExecution
+from app.ingestion.models import NormalizedFinding
+from app.ingestion.parsers import get_parser
+from app.models import Finding, FindingOccurrence, Project, Repository, ScanExecution
 
 # Taille maximale d'un rapport : 10 Mio.
 MAX_REPORT_SIZE = 10 * 1024 * 1024
@@ -29,6 +33,15 @@ class InvalidReportError(IngestionError):
 
 class ReportTooLargeError(IngestionError):
     """Le rapport dépasse la taille maximale autorisée."""
+
+
+@dataclass
+class ScanIngestResult:
+    """Résultat d'une ingestion : l'exécution créée et les compteurs."""
+
+    execution: ScanExecution
+    findings_created: int = 0
+    findings_updated: int = 0
 
 
 async def read_upload_limited(upload: UploadFile) -> bytes:
@@ -92,6 +105,76 @@ def get_or_create_repository(db: Session, project: Project, name: str) -> Reposi
     return repository
 
 
+def _upsert_findings(
+    db: Session,
+    execution: ScanExecution,
+    normalized_findings: list[NormalizedFinding],
+) -> tuple[int, int]:
+    """Crée ou met à jour les findings, et ajoute une occurrence par finding.
+
+    - même empreinte dans le même dépôt  -> même ligne `Finding` ;
+    - le statut n'est jamais écrasé par une ré-ingestion ;
+    - une même empreinte répétée dans un rapport ne compte qu'une fois.
+    """
+    repository = execution.repository
+    now = datetime.now(UTC)
+    created = 0
+    updated = 0
+    seen: set[str] = set()
+
+    for item in normalized_findings:
+        if item.fingerprint in seen:
+            continue
+        seen.add(item.fingerprint)
+
+        finding = db.scalar(
+            select(Finding).where(
+                Finding.repository_id == repository.id,
+                Finding.fingerprint == item.fingerprint,
+            )
+        )
+
+        if finding is None:
+            finding = Finding(
+                repository=repository,
+                fingerprint=item.fingerprint,
+                title=item.title,
+                description=item.description,
+                severity=item.severity.value,
+                scanner=item.scanner,
+                rule_id=item.rule_id,
+                file_path=item.file_path,
+                location=item.location,
+                first_seen=now,
+                last_seen=now,
+                status_updated_at=now,
+            )
+            db.add(finding)
+            db.flush()
+            created += 1
+        else:
+            finding.last_seen = now
+            finding.title = item.title
+            finding.description = item.description
+            finding.severity = item.severity.value
+            if item.file_path is not None:
+                finding.file_path = item.file_path
+            if item.location is not None:
+                finding.location = item.location
+            updated += 1
+
+        db.add(
+            FindingOccurrence(
+                finding=finding,
+                scan_execution=execution,
+                file_path=item.file_path,
+                location=item.location,
+            )
+        )
+
+    return created, updated
+
+
 def ingest_scan(
     db: Session,
     *,
@@ -102,8 +185,8 @@ def ingest_scan(
     branch: str | None,
     is_complete: bool,
     raw_report: dict[str, Any],
-) -> ScanExecution:
-    """Crée l'exécution de scan et stocke le rapport brut tel quel."""
+) -> ScanIngestResult:
+    """Stocke l'exécution de scan puis normalise ses findings (si parseur connu)."""
     project = get_or_create_project(db, project_name)
     repository = get_or_create_repository(db, project, repository_name)
 
@@ -116,6 +199,16 @@ def ingest_scan(
         raw_report=raw_report,
     )
     db.add(execution)
+    db.flush()
+
+    result = ScanIngestResult(execution=execution)
+    parser = get_parser(scanner)
+    if parser is not None:
+        normalized = parser(raw_report)
+        result.findings_created, result.findings_updated = _upsert_findings(
+            db, execution, normalized
+        )
+
     db.commit()
     db.refresh(execution)
-    return execution
+    return result

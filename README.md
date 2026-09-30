@@ -2,7 +2,7 @@
 
 Plateforme légère de gestion de findings de sécurité : elle ingère les résultats de scanners externes (Semgrep, Trivy, Checkov), les normalise dans un modèle commun, les déduplique, suit leur cycle de vie et les expose via une API et un tableau de bord.
 
-> **Statut : Étape 2 — ingestion.** `POST /scans` reçoit un rapport de scanner (multipart), le valide minimalement et stocke le rapport brut en base. La normalisation des findings arrive aux étapes suivantes.
+> **Statut : Étape 3 — adaptateur Semgrep.** `POST /scans` stocke le rapport brut et normalise les findings Semgrep (empreinte stable, ré-ingestion sans doublon). Trivy et Checkov arrivent à l'Étape 4.
 
 ## Stack
 
@@ -69,6 +69,8 @@ curl.exe -X POST http://localhost:8000/scans `
 - Rapport limité à 10 Mo (`413` au-delà) ; JSON invalide ou non-objet refusé (`400`).
 - Le projet et le dépôt sont créés automatiquement s'ils n'existent pas.
 - Le rapport brut est stocké tel quel dans `scan_executions.raw_report` (JSONB).
+- Pour Semgrep, les findings sont normalisés automatiquement : créés ou mis à
+  jour par empreinte stable, avec une occurrence par scan.
 
 ## Structure
 

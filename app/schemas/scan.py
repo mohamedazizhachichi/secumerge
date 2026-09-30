@@ -17,3 +17,5 @@ class ScanExecutionRead(BaseModel):
     branch: str | None
     is_complete: bool
     created_at: datetime
+    findings_created: int = 0
+    findings_updated: int = 0

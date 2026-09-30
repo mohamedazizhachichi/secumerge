@@ -1,4 +1,4 @@
-"""Tests d'intégration de l'endpoint POST /scans."""
+"""Tests d'intégration de l'endpoint POST /scans et de la normalisation."""
 
 import json
 
@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Project, Repository, ScanExecution
+from app.models import Finding, FindingOccurrence, Project, Repository, ScanExecution
 from app.services import scans as scan_service
 
 VALID_REPORT = {
@@ -17,6 +17,7 @@ VALID_REPORT = {
             "results": [
                 {
                     "ruleId": "demo.rule",
+                    "level": "warning",
                     "message": {"text": "Problème de démonstration"},
                     "locations": [],
                 }
@@ -46,6 +47,12 @@ def post_scan(client: TestClient, *, report: bytes | None = None, **fields: str)
     )
 
 
+def _repository(db_session: Session) -> Repository:
+    return db_session.scalars(
+        select(Repository).where(Repository.name == BASE_FIELDS["repository"])
+    ).one()
+
+
 def test_ingest_valid_report(client: TestClient, db_session: Session) -> None:
     response = post_scan(client)
 
@@ -54,6 +61,7 @@ def test_ingest_valid_report(client: TestClient, db_session: Session) -> None:
     assert body["scanner"] == "semgrep"
     assert body["commit_sha"] == "abc123"
     assert body["is_complete"] is True
+    assert body["findings_created"] == 1
 
     scan = db_session.get(ScanExecution, body["id"])
     assert scan is not None
@@ -64,6 +72,8 @@ def test_ingest_empty_report_is_accepted(client: TestClient) -> None:
     response = post_scan(client, report=b"{}")
 
     assert response.status_code == 201
+    assert response.json()["findings_created"] == 0
+    assert response.json()["findings_updated"] == 0
 
 
 def test_reject_invalid_json(client: TestClient) -> None:
@@ -115,3 +125,85 @@ def test_project_and_repository_are_reused(
         .where(ScanExecution.repository_id == repositories[0].id)
     )
     assert scan_count == 2
+
+
+def test_semgrep_report_creates_normalized_finding(
+    client: TestClient, db_session: Session
+) -> None:
+    response = post_scan(client)
+
+    assert response.status_code == 201
+    assert response.json()["findings_created"] == 1
+
+    repository = _repository(db_session)
+    finding = db_session.scalars(
+        select(Finding).where(Finding.repository_id == repository.id)
+    ).one()
+    assert finding.scanner == "semgrep"
+    assert finding.rule_id == "demo.rule"
+    assert finding.severity == "MEDIUM"
+    assert finding.status == "OPEN"
+    assert finding.title == "Problème de démonstration"
+
+    occurrence = db_session.scalars(
+        select(FindingOccurrence).where(FindingOccurrence.finding_id == finding.id)
+    ).one()
+    assert occurrence.scan_execution_id == response.json()["id"]
+
+
+def test_reingesting_same_finding_reuses_row(
+    client: TestClient, db_session: Session
+) -> None:
+    first = post_scan(client, commit_sha="commit-1")
+    assert first.json()["findings_created"] == 1
+
+    repository = _repository(db_session)
+    finding = db_session.scalars(
+        select(Finding).where(Finding.repository_id == repository.id)
+    ).one()
+    finding.status = "CONFIRMED"
+    db_session.commit()
+
+    second = post_scan(client, commit_sha="commit-2")
+    assert second.json()["findings_created"] == 0
+    assert second.json()["findings_updated"] == 1
+
+    db_session.expire_all()
+    findings = db_session.scalars(
+        select(Finding).where(Finding.repository_id == repository.id)
+    ).all()
+    assert len(findings) == 1
+    assert findings[0].status == "CONFIRMED"
+
+    occurrences = db_session.scalars(
+        select(FindingOccurrence).where(FindingOccurrence.finding_id == findings[0].id)
+    ).all()
+    assert len(occurrences) == 2
+
+
+def test_empty_report_creates_no_finding(
+    client: TestClient, db_session: Session
+) -> None:
+    response = post_scan(client, report=b"{}")
+
+    assert response.status_code == 201
+    repository = _repository(db_session)
+    findings = db_session.scalars(
+        select(Finding).where(Finding.repository_id == repository.id)
+    ).all()
+    assert findings == []
+
+
+def test_report_without_parser_creates_no_finding(
+    client: TestClient, db_session: Session
+) -> None:
+    response = post_scan(client, scanner="trivy", report=json.dumps(VALID_REPORT).encode())
+
+    assert response.status_code == 201
+    assert response.json()["findings_created"] == 0
+
+    repository = _repository(db_session)
+    findings = db_session.scalars(
+        select(Finding).where(Finding.repository_id == repository.id)
+    ).all()
+    assert findings == []
