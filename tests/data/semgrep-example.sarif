@@ -11,6 +11,12 @@
               "id": "python.lang.security.audit.eval-detected.eval-detected",
               "shortDescription": {
                 "text": "Détection d'un appel à eval()"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
+                ]
               }
             }
           ]

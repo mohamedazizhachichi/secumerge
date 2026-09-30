@@ -7,7 +7,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Finding, FindingOccurrence, Project, Repository, ScanExecution
+from app.models import (
+    Finding,
+    FindingOccurrence,
+    Project,
+    Repository,
+    RiskAssessment,
+    ScanExecution,
+)
 from app.services import scans as scan_service
 
 VALID_REPORT = {
@@ -333,3 +340,60 @@ def test_resolved_finding_is_not_reopened(
         )
     ).one()
     assert still_resolved.status == "RESOLVED"  # pas de réouverture automatique
+
+
+def test_risk_assessment_created_with_cvss(
+    client: TestClient, db_session: Session
+) -> None:
+    post_scan(client, scanner="trivy", report=sample("trivy-example.sarif"))
+
+    repository = _repository(db_session)
+    finding = db_session.scalars(
+        select(Finding).where(Finding.repository_id == repository.id)
+    ).one()
+    assessment = db_session.scalars(
+        select(RiskAssessment).where(RiskAssessment.finding_id == finding.id)
+    ).one()
+
+    assert assessment.score == 94  # CRITICAL 90 moyenné avec CVSS 9.8
+    assert assessment.cvss_score == 9.8
+    assert assessment.confidence is None
+
+
+def test_risk_assessment_is_not_duplicated(
+    client: TestClient, db_session: Session
+) -> None:
+    post_scan(
+        client, scanner="trivy", report=sample("trivy-example.sarif"), commit_sha="rev-1"
+    )
+    post_scan(
+        client, scanner="trivy", report=sample("trivy-example.sarif"), commit_sha="rev-2"
+    )
+
+    repository = _repository(db_session)
+    finding = db_session.scalars(
+        select(Finding).where(Finding.repository_id == repository.id)
+    ).one()
+    assessments = db_session.scalars(
+        select(RiskAssessment).where(RiskAssessment.finding_id == finding.id)
+    ).all()
+
+    assert len(assessments) == 1
+    assert assessments[0].score == 94
+
+
+def test_semgrep_assessment_stores_cwe(
+    client: TestClient, db_session: Session
+) -> None:
+    post_scan(client, report=sample("semgrep-example.sarif"))
+
+    repository = _repository(db_session)
+    finding = db_session.scalars(
+        select(Finding).where(Finding.repository_id == repository.id)
+    ).one()
+    assessment = db_session.scalars(
+        select(RiskAssessment).where(RiskAssessment.finding_id == finding.id)
+    ).one()
+
+    assert assessment.score == 50  # MEDIUM sans CVSS
+    assert assessment.cwe == "CWE-95"

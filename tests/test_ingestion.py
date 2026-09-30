@@ -93,6 +93,9 @@ def test_parse_semgrep_example() -> None:
     assert finding.location == "12:5"
     assert finding.title == "Détection d'un appel à eval()"
     assert finding.description == "Éviter eval() avec des données utilisateur."
+    assert finding.cwe == "CWE-95"
+    assert finding.cvss_score is None
+    assert finding.confidence is None
     assert finding.fingerprint
 
 
@@ -109,6 +112,7 @@ def test_parse_trivy_example() -> None:
     assert finding.file_path == "requirements.txt"
     assert finding.location == "1:1"
     assert finding.title.startswith("CVE-2020-14343")
+    assert finding.cvss_score == 9.8
 
 
 def test_parse_checkov_example() -> None:
@@ -126,6 +130,37 @@ def test_parse_checkov_example() -> None:
     assert finding.file_path == "main.tf"
     assert finding.location == "5"
     assert finding.description is None  # le message sert de titre
+    assert finding.cvss_score is None
+    assert finding.cwe is None
+
+
+def test_parse_extracts_confidence_and_cwe() -> None:
+    report = {
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "rules": [
+                            {
+                                "id": "R1",
+                                "properties": {
+                                    "confidence": "low",
+                                    "tags": ["security", "CWE-79: XSS"],
+                                },
+                            }
+                        ]
+                    }
+                },
+                "results": [{"ruleId": "R1", "message": {"text": "Problème"}}],
+            }
+        ]
+    }
+
+    findings = parse_semgrep_report(report)
+
+    assert len(findings) == 1
+    assert findings[0].cwe == "CWE-79"
+    assert findings[0].confidence == "LOW"
 
 
 def test_parse_tolerates_malformed_reports() -> None:

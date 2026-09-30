@@ -6,6 +6,7 @@ mutualisé ici. Chaque scanner garde son module dédié pour accueillir ses
 spécificités éventuelles.
 """
 
+import re
 from typing import Any
 
 from app.ingestion.fingerprint import compute_fingerprint
@@ -61,6 +62,27 @@ def as_dict(value: Any) -> dict[str, Any]:
 def as_list(value: Any) -> list[Any]:
     """Retourne la valeur si c'est une liste JSON, sinon une liste vide."""
     return value if isinstance(value, list) else []
+
+
+def as_float(value: Any) -> float | None:
+    """Convertit une valeur en float, ou retourne None si impossible."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+_CWE_PATTERN = re.compile(r"CWE-\d+", re.IGNORECASE)
+
+
+def extract_cwe(properties: dict[str, Any]) -> str | None:
+    """Cherche un identifiant CWE dans les tags de règle (ex. « CWE-95 »)."""
+    for tag in as_list(properties.get("tags")):
+        if isinstance(tag, str):
+            match = _CWE_PATTERN.search(tag)
+            if match:
+                return match.group(0).upper()
+    return None
 
 
 def has_sarif_runs(report: dict[str, Any]) -> bool:
@@ -147,12 +169,17 @@ def parse_sarif_results(report: dict[str, Any], scanner: str) -> list[Normalized
                 continue
 
             rule = as_dict(rules.get(rule_id)) if rule_id else {}
+            properties = as_dict(rule.get("properties"))
 
             level = _text(result.get("level")) or _text(
                 as_dict(rule.get("defaultConfiguration")).get("level")
             )
-            security_severity = as_dict(rule.get("properties")).get("security-severity")
-            severity = map_sarif_severity(level, security_severity)
+            severity = map_sarif_severity(level, properties.get("security-severity"))
+            cvss_score = as_float(properties.get("security-severity"))
+            cwe = extract_cwe(properties)
+            confidence = _text(properties.get("confidence"))
+            if confidence:
+                confidence = confidence.upper()
 
             short = _text(as_dict(rule.get("shortDescription")).get("text"))
             first_line = message.splitlines()[0] if message else None
@@ -174,6 +201,9 @@ def parse_sarif_results(report: dict[str, Any], scanner: str) -> list[Normalized
                         file_path=file_path,
                         location=location,
                     ),
+                    cvss_score=cvss_score,
+                    cwe=cwe,
+                    confidence=confidence,
                 )
             )
 

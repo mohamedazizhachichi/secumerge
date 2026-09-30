@@ -22,8 +22,10 @@ from app.models import (
     FindingStatus,
     Project,
     Repository,
+    RiskAssessment,
     ScanExecution,
 )
+from app.services.risk import compute_risk_score
 
 # Taille maximale d'un rapport : 10 Mio.
 MAX_REPORT_SIZE = 10 * 1024 * 1024
@@ -114,6 +116,45 @@ def get_or_create_repository(db: Session, project: Project, name: str) -> Reposi
     return repository
 
 
+def _upsert_risk_assessment(
+    db: Session,
+    finding: Finding,
+    item: NormalizedFinding,
+) -> None:
+    """Calcule (ou recalcule) l'évaluation de risque du finding.
+
+    Une seule évaluation courante par finding ; `computed_at` est rafraîchi
+    à chaque passage. L'historique éventuel viendra plus tard.
+    """
+    score = compute_risk_score(
+        severity=item.severity,
+        cvss_score=item.cvss_score,
+        confidence=item.confidence,
+    )
+    now = datetime.now(UTC)
+
+    assessment = db.scalar(
+        select(RiskAssessment).where(RiskAssessment.finding_id == finding.id)
+    )
+    if assessment is None:
+        db.add(
+            RiskAssessment(
+                finding=finding,
+                score=score,
+                cvss_score=item.cvss_score,
+                cwe=item.cwe,
+                confidence=item.confidence,
+                computed_at=now,
+            )
+        )
+    else:
+        assessment.score = score
+        assessment.cvss_score = item.cvss_score
+        assessment.cwe = item.cwe
+        assessment.confidence = item.confidence
+        assessment.computed_at = now
+
+
 def _upsert_findings(
     db: Session,
     execution: ScanExecution,
@@ -172,6 +213,8 @@ def _upsert_findings(
             if item.location is not None:
                 finding.location = item.location
             updated += 1
+
+        _upsert_risk_assessment(db, finding, item)
 
         db.add(
             FindingOccurrence(

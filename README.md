@@ -2,7 +2,7 @@
 
 Plateforme légère de gestion de findings de sécurité : elle ingère les résultats de scanners externes (Semgrep, Trivy, Checkov), les normalise dans un modèle commun, les déduplique, suit leur cycle de vie et les expose via une API et un tableau de bord.
 
-> **Statut : Étape 5 — cycle de vie.** Un scan complet et exploitable résout automatiquement les findings disparus du même scanner et du même dépôt ; un scan partiel ne change jamais rien.
+> **Statut : Étape 6 — score de risque.** Chaque finding reçoit un score 0-100 explicable (sévérité, CVSS, confiance), stocké dans `risk_assessments` avec ses ingrédients.
 
 ## Stack
 
@@ -76,6 +76,20 @@ curl.exe -X POST http://localhost:8000/scans `
 - Un scan complet résout (`RESOLVED`) les findings du même scanner absents du
   rapport ; un scan partiel (`is_complete=false`) ou un rapport sans structure
   SARIF ne résout jamais rien.
+
+## Score de risque
+
+Chaque finding reçoit un score 0-100, recalculé à chaque ingestion et stocké
+dans `risk_assessments` avec ses ingrédients (CVSS, CWE, confiance).
+
+| Élément | Effet |
+|---|---|
+| Sévérité | Base : `CRITICAL` 90, `HIGH` 70, `MEDIUM` 50, `LOW` 30, `INFO` 10 |
+| CVSS (`security-severity`) | Si fourni : moyenne entre la base et `CVSS × 10` |
+| Confiance | Facteur : `HIGH`/absent ×1, `MEDIUM` ×0.9, `LOW` ×0.8 |
+| CWE | Information stockée, sans effet numérique |
+
+Exemple : un CVE `CRITICAL` avec CVSS 9.8 → (90 + 98) / 2 = **94**.
 
 ## Structure
 

@@ -21,3 +21,6 @@ class NormalizedFinding:
     file_path: str | None
     location: str | None
     fingerprint: str
+    cvss_score: float | None = None
+    cwe: str | None = None
+    confidence: str | None = None
