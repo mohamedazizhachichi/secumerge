@@ -1,6 +1,7 @@
 """Tests d'intégration de l'endpoint POST /scans et de la normalisation."""
 
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -34,6 +35,12 @@ BASE_FIELDS = {
     "branch": "main",
     "is_complete": "true",
 }
+
+DATA_DIR = Path(__file__).parent / "data"
+
+
+def sample(name: str) -> bytes:
+    return (DATA_DIR / name).read_bytes()
 
 
 def post_scan(client: TestClient, *, report: bytes | None = None, **fields: str):
@@ -194,16 +201,40 @@ def test_empty_report_creates_no_finding(
     assert findings == []
 
 
-def test_report_without_parser_creates_no_finding(
+def test_trivy_report_creates_critical_finding(
     client: TestClient, db_session: Session
 ) -> None:
-    response = post_scan(client, scanner="trivy", report=json.dumps(VALID_REPORT).encode())
+    response = post_scan(client, scanner="trivy", report=sample("trivy-example.sarif"))
 
     assert response.status_code == 201
-    assert response.json()["findings_created"] == 0
+    assert response.json()["findings_created"] == 1
 
     repository = _repository(db_session)
-    findings = db_session.scalars(
+    finding = db_session.scalars(
         select(Finding).where(Finding.repository_id == repository.id)
-    ).all()
-    assert findings == []
+    ).one()
+    assert finding.scanner == "trivy"
+    assert finding.rule_id == "CVE-2020-14343"
+    assert finding.severity == "CRITICAL"
+    assert finding.file_path == "requirements.txt"
+
+
+def test_checkov_report_creates_finding(
+    client: TestClient, db_session: Session
+) -> None:
+    response = post_scan(
+        client, scanner="checkov", report=sample("checkov-example.sarif")
+    )
+
+    assert response.status_code == 201
+    assert response.json()["findings_created"] == 1
+
+    repository = _repository(db_session)
+    finding = db_session.scalars(
+        select(Finding).where(Finding.repository_id == repository.id)
+    ).one()
+    assert finding.scanner == "checkov"
+    assert finding.rule_id == "CKV_AWS_20"
+    assert finding.severity == "HIGH"
+    assert finding.file_path == "main.tf"
+    assert finding.location == "5"

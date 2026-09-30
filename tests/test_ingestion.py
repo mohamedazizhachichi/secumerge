@@ -4,8 +4,14 @@ import json
 from pathlib import Path
 
 from app.ingestion.fingerprint import compute_fingerprint
+from app.ingestion.parsers.checkov import parse_checkov_report
 from app.ingestion.parsers.semgrep import parse_semgrep_report
-from app.ingestion.sarif import map_sarif_level
+from app.ingestion.parsers.trivy import parse_trivy_report
+from app.ingestion.sarif import (
+    map_sarif_level,
+    map_sarif_severity,
+    map_security_severity,
+)
 from app.models import Severity
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -53,6 +59,23 @@ def test_severity_mapping() -> None:
     assert map_sarif_level("niveau-inconnu") is Severity.INFO
 
 
+def test_security_severity_mapping() -> None:
+    assert map_security_severity("10.0") is Severity.CRITICAL
+    assert map_security_severity(9.0) is Severity.CRITICAL
+    assert map_security_severity("7.5") is Severity.HIGH
+    assert map_security_severity("4.0") is Severity.MEDIUM
+    assert map_security_severity("0.1") is Severity.LOW
+    assert map_security_severity("0") is Severity.INFO
+    assert map_security_severity("pas un score") is None
+    assert map_security_severity(None) is None
+
+
+def test_sarif_severity_prefers_cvss() -> None:
+    assert map_sarif_severity("warning", "10.0") is Severity.CRITICAL
+    assert map_sarif_severity("error", None) is Severity.HIGH
+    assert map_sarif_severity("note", "pas un score") is Severity.LOW
+
+
 def test_parse_semgrep_example() -> None:
     report = json.loads(
         (DATA_DIR / "semgrep-example.sarif").read_text(encoding="utf-8")
@@ -70,6 +93,38 @@ def test_parse_semgrep_example() -> None:
     assert finding.title == "Détection d'un appel à eval()"
     assert finding.description == "Éviter eval() avec des données utilisateur."
     assert finding.fingerprint
+
+
+def test_parse_trivy_example() -> None:
+    report = json.loads((DATA_DIR / "trivy-example.sarif").read_text(encoding="utf-8"))
+
+    findings = parse_trivy_report(report)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.scanner == "trivy"
+    assert finding.rule_id == "CVE-2020-14343"
+    assert finding.severity is Severity.CRITICAL  # CVSS 9.8, pas le niveau « error »
+    assert finding.file_path == "requirements.txt"
+    assert finding.location == "1:1"
+    assert finding.title.startswith("CVE-2020-14343")
+
+
+def test_parse_checkov_example() -> None:
+    report = json.loads(
+        (DATA_DIR / "checkov-example.sarif").read_text(encoding="utf-8")
+    )
+
+    findings = parse_checkov_report(report)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.scanner == "checkov"
+    assert finding.rule_id == "CKV_AWS_20"
+    assert finding.severity is Severity.HIGH
+    assert finding.file_path == "main.tf"
+    assert finding.location == "5"
+    assert finding.description is None  # le message sert de titre
 
 
 def test_parse_tolerates_malformed_reports() -> None:
