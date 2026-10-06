@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.api.gate import router as gate_router
 from app.api.scans import router as scans_router
+from app.api.ui import router as ui_router
 
 app = FastAPI(
     title="SecuMerge",
@@ -13,16 +14,7 @@ app = FastAPI(
 
 app.include_router(gate_router)
 app.include_router(scans_router)
-
-
-@app.get("/")
-def root() -> dict[str, str]:
-    """Page d'accueil minimale de l'API."""
-    return {
-        "application": "SecuMerge",
-        "status": "ok",
-        "documentation": "/docs",
-    }
+app.include_router(ui_router)
 
 
 @app.get("/health")

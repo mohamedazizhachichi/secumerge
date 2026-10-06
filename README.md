@@ -2,7 +2,7 @@
 
 Plateforme légère de gestion de findings de sécurité : elle ingère les résultats de scanners externes (Semgrep, Trivy, Checkov), les normalise dans un modèle commun, les déduplique, suit leur cycle de vie et les expose via une API et un tableau de bord.
 
-> **Statut : Étape 7 — Security Gate.** `GET /gate` répond PASS/FAIL pour un commit : chaque scanner attendu (Semgrep, Trivy, Checkov) doit avoir au moins un scan complet, sinon FAIL.
+> **Statut : Étape 8 — tableau de bord.** `GET /` affiche les findings : compteurs par sévérité et statut, filtres simples, tri par score de risque.
 
 ## Stack
 
@@ -104,18 +104,29 @@ curl.exe -s "http://localhost:8000/gate?project=demo&repository=app-vulnerable&c
 La réponse (toujours en HTTP 200) contient `status`, le détail par scanner et
 la liste `missing`. Le pipeline GitHub Actions s'appuiera dessus à l'Étape 10.
 
+## Tableau de bord
+
+La page d'accueil (http://localhost:8000/) affiche :
+
+- les compteurs par sévérité et par statut ;
+- la liste des findings triée par score de risque décroissant ;
+- des filtres simples : sévérité, statut, scanner.
+
+L'interface est générée côté serveur avec Jinja2 (pas de JavaScript).
+
 ## Structure
 
 ```text
 secumerge/
 ├── app/
 │   ├── main.py          # point d'entrée + /health
-│   ├── api/             # routes HTTP (POST /scans)
+│   ├── api/             # routes HTTP (scans, gate, tableau de bord)
 │   ├── core/            # configuration et connexion base de données
 │   ├── models/          # modèles SQLAlchemy (6 tables)
 │   ├── ingestion/       # parseurs SARIF (Semgrep, Trivy, Checkov)
 │   ├── schemas/         # schémas Pydantic de l'API
-│   └── services/        # logique métier (ingestion)
+│   ├── services/        # logique métier (ingestion, risque, gate, dashboard)
+│   └── templates/       # pages Jinja2 (tableau de bord)
 ├── alembic/             # migrations
 ├── tests/               # tests pytest + exemples de rapports
 ├── docs/                # spécification et planning

@@ -23,3 +23,7 @@ htmlcov/
 build/
 dist/
 .DS_Store
+
+# Artefacts de vérification navigateur (non livrés)
+.playwright-cli/
+dashboard-*.png
