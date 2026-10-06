@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 
+from app.api.gate import router as gate_router
 from app.api.scans import router as scans_router
 
 app = FastAPI(
@@ -10,6 +11,7 @@ app = FastAPI(
     version="0.1.0",
 )
 
+app.include_router(gate_router)
 app.include_router(scans_router)
 
 

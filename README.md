@@ -2,7 +2,7 @@
 
 Plateforme légère de gestion de findings de sécurité : elle ingère les résultats de scanners externes (Semgrep, Trivy, Checkov), les normalise dans un modèle commun, les déduplique, suit leur cycle de vie et les expose via une API et un tableau de bord.
 
-> **Statut : Étape 6 — score de risque.** Chaque finding reçoit un score 0-100 explicable (sévérité, CVSS, confiance), stocké dans `risk_assessments` avec ses ingrédients.
+> **Statut : Étape 7 — Security Gate.** `GET /gate` répond PASS/FAIL pour un commit : chaque scanner attendu (Semgrep, Trivy, Checkov) doit avoir au moins un scan complet, sinon FAIL.
 
 ## Stack
 
@@ -90,6 +90,19 @@ dans `risk_assessments` avec ses ingrédients (CVSS, CWE, confiance).
 | CWE | Information stockée, sans effet numérique |
 
 Exemple : un CVE `CRITICAL` avec CVSS 9.8 → (90 + 98) / 2 = **94**.
+
+## Security Gate
+
+Verdict PASS/FAIL pour un commit : chaque scanner attendu (`semgrep`, `trivy`,
+`checkov`) doit avoir au moins un scan **complet**. Un scan partiel seul ne
+suffit pas et l'absence de preuve est un FAIL (fail-closed).
+
+```powershell
+curl.exe -s "http://localhost:8000/gate?project=demo&repository=app-vulnerable&commit_sha=abc123"
+```
+
+La réponse (toujours en HTTP 200) contient `status`, le détail par scanner et
+la liste `missing`. Le pipeline GitHub Actions s'appuiera dessus à l'Étape 10.
 
 ## Structure
 
