@@ -1,178 +1,136 @@
 # SecuMerge
 
-Plateforme légère de gestion de findings de sécurité : elle ingère les résultats de scanners externes (Semgrep, Trivy, Checkov), les normalise dans un modèle commun, les déduplique, suit leur cycle de vie et les expose via une API et un tableau de bord.
+[![security](https://github.com/mohamedazizhachichi/secumerge/actions/workflows/security.yml/badge.svg)](https://github.com/mohamedazizhachichi/secumerge/actions/workflows/security.yml)
 
-> **Statut : Étape 10 — CI GitHub Actions.** Le workflow `security.yml` scanne le dépôt à chaque push, ingère les rapports dans SecuMerge et échoue si le Security Gate ne répond pas PASS.
+Plateforme légère de gestion de findings de sécurité : elle ingère les résultats
+de scanners externes (**Semgrep**, **Trivy**, **Checkov**), les normalise et les
+déduplique, suit leur cycle de vie, calcule un score de risque explicable, les
+affiche dans un tableau de bord, et **bloque la CI si un scanner attendu manque**.
+
+Projet personnel de fin d'études — ING-5-SSIRF-J, TEK-UP University.
+
+## Aperçu
+
+![Tableau de bord](docs/images/dashboard-desktop.png)
+
+## Le problème
+
+Chaque scanner a son format, signale les mêmes problèmes à chaque exécution et
+ne partage aucun cycle de vie. Sans agrégation : doublons, bruit, aucune
+priorisation, et un pipeline qui ne sait pas si les contrôles ont réellement
+tourné.
+
+SecuMerge répond à ça avec une seule promesse :
+
+> **Normalisation + agrégation + cycle de vie + visibilité + intégration DevSecOps.**
+
+## Comment ça marche
+
+```mermaid
+flowchart LR
+    subgraph CI["CI / local"]
+        S1[Semgrep] --> R[SARIF]
+        S2[Trivy] --> R
+        S3[Checkov] --> R
+    end
+    R -->|"POST /scans"| I["Ingestion<br/>validation + rapport brut"]
+    I --> N["Normalisation<br/>empreinte stable"]
+    N --> D["Déduplication<br/>findings + occurrences"]
+    D --> DB[(PostgreSQL)]
+    DB --> W["Tableau de bord<br/>GET /"]
+    DB --> G["Security Gate<br/>GET /gate"]
+    G -->|"PASS / FAIL"| CI
+```
+
+Détails et décisions : [docs/architecture.md](docs/architecture.md).
 
 ## Stack
 
-- Python 3.13 · FastAPI · Pydantic
-- PostgreSQL · SQLAlchemy · Alembic *(à partir de l'Étape 1)*
-- Jinja2 (HTMX optionnel) pour l'interface web
-- Docker + Docker Compose pour le développement local
-- GitHub Actions pour la CI/CD
-- pytest pour les tests
-
-## Prérequis
-
-- Docker Desktop installé et démarré
-- Git
-- Python 3.13 (optionnel : uniquement pour le lint local ; les tests tournent dans le conteneur)
+| Domaine | Choix |
+|---|---|
+| Backend | Python 3.13 · FastAPI · Pydantic |
+| Base de données | PostgreSQL 17 · SQLAlchemy · Alembic |
+| Interface | Jinja2 (page générée côté serveur, sans JavaScript) |
+| Scanners | Semgrep (SAST) · Trivy (dépendances/conteneurs) · Checkov (IaC) |
+| Développement | Docker · Docker Compose |
+| CI/CD | GitHub Actions |
+| Tests | pytest — 48 tests |
 
 ## Démarrage rapide
 
 ```powershell
-# 1. Créer le fichier d'environnement local (jamais commité)
+git clone https://github.com/mohamedazizhachichi/secumerge.git
+cd secumerge
 Copy-Item .env.example .env
-
-# 2. Construire et lancer l'API + PostgreSQL
 docker compose up --build
-
-# 3. Appliquer les migrations (second terminal, pendant que ça tourne)
-docker compose exec api alembic upgrade head
-
-# 4. Vérifier (navigateur ou second terminal)
-curl.exe http://localhost:8000/health
 ```
 
-- Santé : http://localhost:8000/health
-- Documentation interactive : http://localhost:8000/docs
-
-Arrêter : `Ctrl+C`, puis `docker compose down`.
-
-## Tests
+Dans un second terminal :
 
 ```powershell
-docker compose exec api pytest
+docker compose exec api alembic upgrade head   # créer le schéma
+docker compose exec api pytest                 # 48 tests
 ```
 
-## Migrations
+Puis ouvrir :
 
-```powershell
-# Appliquer les migrations sur la base locale
-docker compose exec api alembic upgrade head
+- http://localhost:8000/ — le tableau de bord des findings ;
+- http://localhost:8000/docs — la documentation interactive de l'API ;
+- http://localhost:8000/health — l'état de santé.
 
-# Créer une migration après avoir modifié un modèle
-docker compose exec api alembic revision --autogenerate -m "description"
-```
-
-## Ingestion d'un rapport
+### Envoyer un rapport de scan
 
 ```powershell
 curl.exe -X POST http://localhost:8000/scans `
   -F "file=@tests/data/semgrep-example.sarif" `
   -F "project=demo" -F "repository=app-vulnerable" `
-  -F "scanner=semgrep" -F "commit_sha=abc123" -F "branch=main" -F "is_complete=true"
+  -F "scanner=semgrep" -F "commit_sha=abc123" -F "branch=main"
 ```
 
-- `scanner` : `semgrep`, `trivy` ou `checkov`.
-- Rapport limité à 10 Mo (`413` au-delà) ; JSON invalide ou non-objet refusé (`400`).
-- Le projet et le dépôt sont créés automatiquement s'ils n'existent pas.
-- Le rapport brut est stocké tel quel dans `scan_executions.raw_report` (JSONB).
-- Les rapports Semgrep, Trivy et Checkov sont normalisés automatiquement :
-  findings créés ou mis à jour par empreinte stable, avec une occurrence par
-  scan. La sévérité utilise le score CVSS (`security-severity`) quand le
-  scanner le fournit, sinon le niveau SARIF.
-- Un scan complet résout (`RESOLVED`) les findings du même scanner absents du
-  rapport ; un scan partiel (`is_complete=false`) ou un rapport sans structure
-  SARIF ne résout jamais rien.
-
-## Score de risque
-
-Chaque finding reçoit un score 0-100, recalculé à chaque ingestion et stocké
-dans `risk_assessments` avec ses ingrédients (CVSS, CWE, confiance).
-
-| Élément | Effet |
-|---|---|
-| Sévérité | Base : `CRITICAL` 90, `HIGH` 70, `MEDIUM` 50, `LOW` 30, `INFO` 10 |
-| CVSS (`security-severity`) | Si fourni : moyenne entre la base et `CVSS × 10` |
-| Confiance | Facteur : `HIGH`/absent ×1, `MEDIUM` ×0.9, `LOW` ×0.8 |
-| CWE | Information stockée, sans effet numérique |
-
-Exemple : un CVE `CRITICAL` avec CVSS 9.8 → (90 + 98) / 2 = **94**.
-
-## Security Gate
-
-Verdict PASS/FAIL pour un commit : chaque scanner attendu (`semgrep`, `trivy`,
-`checkov`) doit avoir au moins un scan **complet**. Un scan partiel seul ne
-suffit pas et l'absence de preuve est un FAIL (fail-closed).
-
-```powershell
-curl.exe -s "http://localhost:8000/gate?project=demo&repository=app-vulnerable&commit_sha=abc123"
-```
-
-La réponse (toujours en HTTP 200) contient `status`, le détail par scanner et
-la liste `missing`. Le pipeline GitHub Actions s'appuiera dessus à l'Étape 10.
-
-## Tableau de bord
-
-La page d'accueil (http://localhost:8000/) affiche :
-
-- les compteurs par sévérité et par statut ;
-- la liste des findings triée par score de risque décroissant ;
-- des filtres simples : sévérité, statut, scanner.
-
-L'interface est générée côté serveur avec Jinja2 (pas de JavaScript).
-
-## Test Lab
-
-`security-lab/` contient des cibles volontairement vulnérables (code Python,
-dépendances obsolètes, infrastructure Terraform non sécurisée) et un script
-qui vérifie le pipeline de bout en bout :
+### Test Lab (démonstration complète)
 
 ```powershell
 .\security-lab\run-lab.ps1
 ```
 
-Le script lance les trois scanners via Docker, envoie les rapports à l'API,
-contrôle les findings créés et exige un verdict **PASS** du Security Gate.
-Détails dans `security-lab/README.md`.
+Lance les trois scanners sur des cibles volontairement vulnérables, envoie les
+rapports à l'API, puis exige un **PASS** du Security Gate. Voir
+[docs/demo.md](docs/demo.md).
 
-## Intégration continue (GitHub Actions)
+## Intégration continue
 
-Le workflow `.github/workflows/security.yml` s'exécute sur chaque push vers
-`main` et sur les pull requests :
-
-1. démarre le stack (Docker Compose) et applique les migrations ;
-2. lance les tests ;
-3. scanne le dépôt avec Semgrep (SAST), Trivy (dépendances) et Checkov
-   (Dockerfile / compose), en excluant `security-lab/` ;
-4. envoie les trois rapports à `POST /scans` ;
-5. échoue si `GET /gate` ne répond pas **PASS**.
-
-Pour bloquer réellement les merges : *Settings → Branches → Add branch
-protection rule* sur `main`, cocher **Require status checks to pass** et
-sélectionner le job `pipeline` (workflow « security »).
-
-## Structure
-
-```text
-secumerge/
-├── app/
-│   ├── main.py          # point d'entrée + /health
-│   ├── api/             # routes HTTP (scans, gate, tableau de bord)
-│   ├── core/            # configuration et connexion base de données
-│   ├── models/          # modèles SQLAlchemy (6 tables)
-│   ├── ingestion/       # parseurs SARIF (Semgrep, Trivy, Checkov)
-│   ├── schemas/         # schémas Pydantic de l'API
-│   ├── services/        # logique métier (ingestion, risque, gate, dashboard)
-│   └── templates/       # pages Jinja2 (tableau de bord)
-├── alembic/             # migrations
-├── tests/               # tests pytest + exemples de rapports
-├── docs/                # spécification et planning
-├── security-lab/        # cibles vulnérables + script de bout en bout
-├── docker-compose.yml   # api + postgres
-├── Dockerfile
-└── requirements.txt
-```
+Chaque push sur `main` et chaque pull request déclenche
+[`.github/workflows/security.yml`](.github/workflows/security.yml) : démarrage
+du stack, tests, scans Semgrep / Trivy / Checkov du dépôt, ingestion des
+rapports, puis **Security Gate** — le job échoue si un scanner attendu manque ou
+n'a pas produit de scan complet. Voir [docs/ci-cd.md](docs/ci-cd.md).
 
 ## Documentation
 
-- `AGENTS.md` — règles de travail et conventions
-- `docs/spec-secumerge.md` — spécification complète
-- `docs/planning.md` — cahier des charges et planning par étapes
+| Document | Contenu |
+|---|---|
+| [architecture.md](docs/architecture.md) | Composants, modèle de données, flux, décisions d'architecture |
+| [setup.md](docs/setup.md) | Installation pas à pas et dépannage |
+| [development.md](docs/development.md) | Organisation du code, conventions, ajouter un parseur ou une migration |
+| [security.md](docs/security.md) | Posture sécurité et limites connues |
+| [scanners.md](docs/scanners.md) | Semgrep, Trivy, Checkov : cibles, extraction, mapping des sévérités |
+| [ci-cd.md](docs/ci-cd.md) | Le pipeline GitHub Actions en détail |
+| [testing.md](docs/testing.md) | Stratégie et organisation des tests |
+| [demo.md](docs/demo.md) | Scénario de démonstration complet |
+| [spec-secumerge.md](docs/spec-secumerge.md) | Spécification complète du projet |
+| [planning.md](docs/planning.md) | Cahier des charges et planning initial |
 
-## Sécurité
+## Limites connues
 
-- `.env` contient les secrets locaux et n'est **jamais** commité ; seul `.env.example` est versionné.
-- Les valeurs par défaut du fichier d'exemple sont réservées au développement local.
+- Pas d'authentification : l'API est ouverte (hors périmètre du MVP) ;
+- le Security Gate vérifie la **présence** des scanners, pas encore la criticité
+  des findings (échouer sur un nouveau `CRITICAL` est envisagé) ;
+- un finding résolu qui réapparaît n'est pas rouvert automatiquement ;
+- les images de scanners et certaines dépendances ne sont pas épinglées ;
+- pas de quota de stockage par dépôt pour les rapports bruts.
+
+Détail et suite prévue (durcissement) : [docs/security.md](docs/security.md).
+
+## Auteur
+
+**Mohamed Aziz Hachichi** — PFE ING-5-SSIRF-J, TEK-UP University.
