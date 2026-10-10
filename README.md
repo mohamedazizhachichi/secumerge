@@ -2,7 +2,7 @@
 
 Plateforme légère de gestion de findings de sécurité : elle ingère les résultats de scanners externes (Semgrep, Trivy, Checkov), les normalise dans un modèle commun, les déduplique, suit leur cycle de vie et les expose via une API et un tableau de bord.
 
-> **Statut : Étape 8 — tableau de bord.** `GET /` affiche les findings : compteurs par sévérité et statut, filtres simples, tri par score de risque.
+> **Statut : Étape 10 — CI GitHub Actions.** Le workflow `security.yml` scanne le dépôt à chaque push, ingère les rapports dans SecuMerge et échoue si le Security Gate ne répond pas PASS.
 
 ## Stack
 
@@ -114,6 +114,36 @@ La page d'accueil (http://localhost:8000/) affiche :
 
 L'interface est générée côté serveur avec Jinja2 (pas de JavaScript).
 
+## Test Lab
+
+`security-lab/` contient des cibles volontairement vulnérables (code Python,
+dépendances obsolètes, infrastructure Terraform non sécurisée) et un script
+qui vérifie le pipeline de bout en bout :
+
+```powershell
+.\security-lab\run-lab.ps1
+```
+
+Le script lance les trois scanners via Docker, envoie les rapports à l'API,
+contrôle les findings créés et exige un verdict **PASS** du Security Gate.
+Détails dans `security-lab/README.md`.
+
+## Intégration continue (GitHub Actions)
+
+Le workflow `.github/workflows/security.yml` s'exécute sur chaque push vers
+`main` et sur les pull requests :
+
+1. démarre le stack (Docker Compose) et applique les migrations ;
+2. lance les tests ;
+3. scanne le dépôt avec Semgrep (SAST), Trivy (dépendances) et Checkov
+   (Dockerfile / compose), en excluant `security-lab/` ;
+4. envoie les trois rapports à `POST /scans` ;
+5. échoue si `GET /gate` ne répond pas **PASS**.
+
+Pour bloquer réellement les merges : *Settings → Branches → Add branch
+protection rule* sur `main`, cocher **Require status checks to pass** et
+sélectionner le job `pipeline` (workflow « security »).
+
 ## Structure
 
 ```text
@@ -130,7 +160,7 @@ secumerge/
 ├── alembic/             # migrations
 ├── tests/               # tests pytest + exemples de rapports
 ├── docs/                # spécification et planning
-├── security-lab/        # (à venir) code volontairement vulnérable, isolé
+├── security-lab/        # cibles vulnérables + script de bout en bout
 ├── docker-compose.yml   # api + postgres
 ├── Dockerfile
 └── requirements.txt

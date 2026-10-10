@@ -1,0 +1,106 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Préparer l'environnement (.env)
+        run: cp .env.example .env
+
+      - name: Démarrer SecuMerge (api + postgres)
+        run: docker compose up -d --build
+
+      - name: Attendre l'API
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health > /dev/null; then
+              echo "API prête."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "L'API n'a pas démarré." >&2
+          exit 1
+
+      - name: Appliquer les migrations
+        run: docker compose exec -T api alembic upgrade head
+
+      - name: Tests
+        run: docker compose exec -T api pytest
+
+      - name: Cache de la base Trivy
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-
+
+      - name: Semgrep (SAST)
+        run: |
+          mkdir -p security-reports
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep \
+            semgrep scan --config p/default --metrics off --quiet \
+            --exclude security-lab \
+            --sarif --output security-reports/semgrep.sarif .
+
+      - name: Trivy (dépendances)
+        run: |
+          docker run --rm -v "$PWD:/src" -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+            aquasec/trivy fs --scanners vuln --quiet \
+            --skip-dirs security-lab \
+            --format sarif --output /src/security-reports/trivy.sarif /src
+
+      - name: Checkov (Dockerfile / compose)
+        run: |
+          docker run --rm -v "$PWD:/src" bridgecrew/checkov \
+            --directory /src --skip-path security-lab \
+            --output sarif --output-file-path /src/security-reports \
+            --soft-fail --quiet
+          if [ -f security-reports/results_sarif.sarif ]; then
+            mv security-reports/results_sarif.sarif security-reports/checkov.sarif
+          fi
+
+      - name: Ingérer les rapports (POST /scans)
+        run: |
+          for scanner in semgrep trivy checkov; do
+            echo "-- $scanner"
+            curl -fsS -X POST http://localhost:8000/scans \
+              -F "file=@security-reports/$scanner.sarif" \
+              -F "project=secumerge" \
+              -F "repository=${{ github.repository }}" \
+              -F "scanner=$scanner" \
+              -F "commit_sha=${{ github.sha }}" \
+              -F "branch=${{ github.ref_name }}" \
+              -F "is_complete=true"
+            echo
+          done
+
+      - name: Security gate (PASS/FAIL)
+        run: |
+          curl -fsS "http://localhost:8000/gate?project=secumerge&repository=${{ github.repository }}&commit_sha=${{ github.sha }}" -o gate.json
+          cat gate.json
+          jq -e '.status == "PASS"' gate.json > /dev/null
+
+      - name: Rapports SARIF (artefact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: security-reports/
+          if-no-files-found: ignore
+
+      - name: Logs du stack en cas d'échec
+        if: failure()
+        run: docker compose logs --tail=100
