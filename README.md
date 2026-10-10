@@ -7,7 +7,7 @@ de scanners externes (**Semgrep**, **Trivy**, **Checkov**), les normalise et les
 déduplique, suit leur cycle de vie, calcule un score de risque explicable, les
 affiche dans un tableau de bord, et **bloque la CI si un scanner attendu manque**.
 
-Projet personnel de fin d'études — ING-5-SSIRF-J, TEK-UP University.
+
 
 ## Aperçu
 
@@ -133,4 +133,4 @@ Détail et suite prévue (durcissement) : [docs/security.md](docs/security.md).
 
 ## Auteur
 
-**Mohamed Aziz Hachichi** — PFE ING-5-SSIRF-J, TEK-UP University.
+**Mohamed Aziz Hachichi** 
