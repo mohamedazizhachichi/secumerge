@@ -27,3 +27,9 @@ dist/
 # Artefacts de vérification navigateur (non livrés)
 .playwright-cli/
 dashboard-*.png
+
+# Rapports de scan du Test Lab (non livrés)
+security-lab/out/
+
+# Rapports de scan locaux (non livrés)
+security-reports/

@@ -1,0 +1,44 @@
+rules:
+  - id: lab-eval
+    languages: [python]
+    severity: ERROR
+    message: "eval() exécute du code arbitraire."
+    patterns:
+      - pattern: eval($X)
+    metadata:
+      cwe:
+        - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
+      confidence: HIGH
+
+  - id: lab-shell-true
+    languages: [python]
+    severity: ERROR
+    message: "subprocess avec shell=True expose à l'injection de commandes."
+    patterns:
+      - pattern: subprocess.run($X, shell=True)
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      confidence: HIGH
+
+  - id: lab-hardcoded-secret
+    languages: [python]
+    severity: WARNING
+    message: "Secret ou mot de passe en dur dans le code."
+    patterns:
+      - pattern-regex: '(?i)(password|token|secret)\s*=\s*"[^"]+"'
+    metadata:
+      cwe:
+        - "CWE-798: Use of Hard-coded Credentials"
+      confidence: MEDIUM
+
+  - id: lab-unsafe-yaml-load
+    languages: [python]
+    severity: ERROR
+    message: "yaml.load sans Loader sûr permet l'exécution de code."
+    patterns:
+      - pattern: yaml.load($X)
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH

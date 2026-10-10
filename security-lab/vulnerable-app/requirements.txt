@@ -1,0 +1,5 @@
+# Dépendances volontairement obsolètes — cible Trivy du Test Lab.
+# Chaque version contient des CVE connues (vérifiées par le scan).
+PyYAML==5.3.1
+requests==2.19.0
+Jinja2==2.10

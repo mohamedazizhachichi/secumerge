@@ -81,6 +81,7 @@ docker compose up --build       # lancer l'API + PostgreSQL
 docker compose exec api alembic upgrade head    # appliquer les migrations
 docker compose exec api alembic revision --autogenerate -m "..."  # nouvelle migration
 docker compose exec api pytest  # tests dans le conteneur
+.\security-lab\run-lab.ps1      # Test Lab : 3 scanners -> API -> gate PASS
 ruff check .                    # lint (local ; sinon dans le conteneur)
 docker compose down             # arrêter les services
 ```
@@ -129,4 +130,7 @@ Une fonctionnalité n'est terminée que si :
 ## 10. Environnement local
 
 - Windows, PowerShell, Python 3.13, Docker Desktop.
+- Les scripts `.ps1` doivent rester en **ASCII avec fins de ligne CRLF** :
+  Windows PowerShell 5.1 lit l'UTF-8 sans BOM en ANSI et se perd sur les
+  caractères non-ASCII (tiret cadratin, accents) et les fins de ligne LF.
 - Le dépôt a été initialisé le 28/09/2026 (branche `main`), aucun commit initial n'est créé sans demande explicite.
